@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Pano</title>
+<style>
+  :root{--bg:#f6f6f4;--fg:#1d1d1b;--muted:#6b6b66}
+  @media (prefers-color-scheme:dark){:root{--bg:#161615;--fg:#ededea;--muted:#9a9a94}}
+  body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--fg);
+       font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;padding:16px;box-sizing:border-box;text-align:center}
+  small{color:var(--muted)}
+</style>
+</head>
+<body>
+<div id="m">Açılıyor…</div>
+<script>
+/* Şifreli pano açıcı. Anahtar adresin # kısmında gelir (# sunucuya gitmez), bu cihazda saklanır,
+   sonra adres çubuğundan silinir. Dosya: nonce(12) || AES-256-GCM(gzip(html)). */
+(async function () {
+  const m = document.getElementById("m");
+  const hata = t => { m.innerHTML = t; };
+  const h = new URLSearchParams(location.hash.slice(1));
+  const q = new URLSearchParams(location.search);
+  let k = h.get("k");
+  try { if (k) localStorage.setItem("pano_k", k); else k = localStorage.getItem("pano_k"); } catch (e) {}
+  const p = (h.get("p") || q.get("p") || "saglik").replace(/[^a-z]/g, "") || "saglik";
+  if (!k) { hata("Bu cihazda anahtar yok.<br><small>Panonun tam bağlantısını (#k=… ile biten) bir kez aç.</small>"); return; }
+  try { history.replaceState(null, "", location.pathname + "?p=" + p); } catch (e) {}
+  const b64u = s => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - s.length % 4) % 4)),
+                                     c => c.charCodeAt(0));
+  try {
+    const r = await fetch(p + ".bin?t=" + Date.now(), { cache: "no-store" });
+    if (!r.ok) { hata("Pano dosyası bulunamadı (" + r.status + ")."); return; }
+    const blob = new Uint8Array(await r.arrayBuffer());
+    const key = await crypto.subtle.importKey("raw", b64u(k), "AES-GCM", false, ["decrypt"]);
+    const gz = await crypto.subtle.decrypt({ name: "AES-GCM", iv: blob.slice(0, 12) }, key, blob.slice(12));
+    const html = await new Response(new Blob([gz]).stream().pipeThrough(new DecompressionStream("gzip"))).text();
+    const SIRA = [["saglik", "Sağlık"], ["koc", "Koç"], ["istatistik", "İstatistik"]];
+    const i = Math.max(0, SIRA.findIndex(x => x[0] === p));
+    const diger = SIRA[(i + 1) % SIRA.length];
+    const gecis = '<a href="?p=' + diger[0] + '" style="position:fixed;right:12px;bottom:12px;z-index:2147483647;' +
+      'padding:8px 14px;border-radius:999px;background:#1d1d1b;color:#fff;font:600 14px system-ui,sans-serif;' +
+      'text-decoration:none;box-shadow:0 2px 8px rgba(0,0,0,.25)">' + diger[1] + ' →</a>';
+    const son = html.lastIndexOf("</body>");
+    document.open();
+    document.write(son >= 0 ? html.slice(0, son) + gecis + html.slice(son) : html + gecis);
+    document.close();
+  } catch (e) {
+    hata("Pano açılamadı: anahtar hatalı ya da tarayıcı eski.<br><small>" + (e && e.name || e) + "</small>");
+  }
+})();
+</script>
+</body>
+</html>
